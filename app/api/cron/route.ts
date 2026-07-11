@@ -1,85 +1,119 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebase";
-import { CreateMessagePayload, ScheduledMessage } from "@/types";
+import { computeNextRunAt } from "@/lib/telegram";
+import { ScheduledMessage } from "@/types";
 
-export async function POST(req: NextRequest) {
-  try {
-    const body: CreateMessagePayload = await req.json();
-    const { chatId, message, scheduledAt, recurring } = body;
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
-    if (!chatId || !message || !scheduledAt || !recurring) {
-      return NextResponse.json(
-        {
-          error:
-            "Missing required fields: chatId, message, scheduledAt, recurring",
-        },
-        { status: 400 },
-      );
+const BOT_TOKENS = [
+  process.env.TELEGRAM_BOT_TOKEN_1,
+  process.env.TELEGRAM_BOT_TOKEN_2,
+  process.env.TELEGRAM_BOT_TOKEN_3,
+  process.env.TELEGRAM_BOT_TOKEN_4,
+  process.env.TELEGRAM_BOT_TOKEN_5,
+].filter(Boolean) as string[];
+
+async function sendWithFallback(chatId: string, text: string): Promise<{
+  ok: boolean;
+  botIndex?: number;
+  error?: string;
+}> {
+  for (let i = 0; i < BOT_TOKENS.length; i++) {
+    const token = BOT_TOKENS[i];
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      });
+      const data = await res.json() as { ok: boolean; description?: string };
+
+      if (data.ok) {
+        return { ok: true, botIndex: i + 1 };
+      }
+
+      const err = data.description ?? "Unknown error";
+      const isBlocked = err.includes("bot was blocked") || err.includes("user is deactivated") || err.includes("chat not found") || err.includes("Forbidden");
+
+      console.warn(`[cron] Bot ${i + 1} failed: ${err}`);
+
+      // Only fallback if blocked/forbidden, stop immediately on other errors
+      if (!isBlocked) {
+        return { ok: false, error: `Bot ${i + 1}: ${err}` };
+      }
+
+      // Blocked — try next bot
+    } catch (err) {
+      console.warn(`[cron] Bot ${i + 1} network error:`, err);
+      // Network error — try next bot
     }
-
-    const scheduled = new Date(scheduledAt);
-    if (isNaN(scheduled.getTime())) {
-      return NextResponse.json(
-        { error: "Invalid scheduledAt date format." },
-        { status: 400 },
-      );
-    }
-
-    const db = getFirebaseAdmin();
-    const doc: Omit<ScheduledMessage, "id"> = {
-      chatId,
-      message,
-      scheduledAt: scheduled.toISOString(),
-      recurring,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-    };
-
-    const ref = await db.collection("scheduled_messages").add(doc);
-    return NextResponse.json({ id: ref.id, ...doc }, { status: 201 });
-  } catch (err: unknown) {
-    console.error("[schedule POST] Error:", err);
-    const message =
-      err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
   }
+
+  return { ok: false, error: "All bots failed or are blocked." };
 }
 
-export async function DELETE(req: NextRequest) {
-  try {
-    const { id } = await req.json();
-    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
 
-    const db = getFirebaseAdmin();
-    await db.collection("scheduled_messages").doc(id).delete();
-    return NextResponse.json({ success: true });
-  } catch (err: unknown) {
-    console.error("[schedule DELETE] Error:", err);
-    const message =
-      err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-}
 
-export async function GET() {
+  const now = new Date();
+  const db = getFirebaseAdmin();
+
   try {
-    const db = getFirebaseAdmin();
     const snapshot = await db
       .collection("scheduled_messages")
-      .orderBy("createdAt", "desc")
-      .limit(100)
+      .where("status", "==", "pending")
+      .where("scheduledAt", "<=", now.toISOString())
       .get();
 
-    const messages: ScheduledMessage[] = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...(doc.data() as Omit<ScheduledMessage, "id">),
-    }));
+    if (snapshot.empty) {
+      return NextResponse.json({ processed: 0, message: "No messages due." });
+    }
 
-    return NextResponse.json(messages);
+    const results: Array<{ id: string; status: string; botUsed?: number; error?: string }> = [];
+
+    for (const doc of snapshot.docs) {
+      const data = doc.data() as Omit<ScheduledMessage, "id">;
+      const id = doc.id;
+
+      const { ok, botIndex, error } = await sendWithFallback(data.chatId, data.message);
+
+      if (ok) {
+        if (data.recurring === "once") {
+          await doc.ref.update({ status: "sent", sentAt: now.toISOString(), sentByBot: botIndex });
+          results.push({ id, status: "sent", botUsed: botIndex });
+        } else {
+          const nextRunAt = computeNextRunAt(
+            data.nextRunAt ?? data.scheduledAt,
+            data.recurring as "daily" | "weekly"
+          );
+          await doc.ref.update({ status: "sent", sentAt: now.toISOString(), sentByBot: botIndex });
+          await db.collection("scheduled_messages").add({
+            chatId: data.chatId,
+            message: data.message,
+            scheduledAt: nextRunAt,
+            recurring: data.recurring,
+            status: "pending",
+            createdAt: now.toISOString(),
+            nextRunAt,
+          });
+          results.push({ id, status: "sent-recurring", botUsed: botIndex });
+        }
+      } else {
+        await doc.ref.update({ status: "failed", errorMessage: error ?? "All bots failed." });
+        results.push({ id, status: "failed", error });
+      }
+    }
+
+    return NextResponse.json({ processed: results.length, results, timestamp: now.toISOString() });
   } catch (err: unknown) {
-    console.error("[schedule GET] Error:", err);
-    const message =
-      err instanceof Error ? err.message : "Internal server error";
+    console.error("[cron] Error:", err);
+    const message = err instanceof Error ? err.message : "Internal error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
