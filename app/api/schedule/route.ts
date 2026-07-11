@@ -9,8 +9,11 @@ export async function POST(req: NextRequest) {
 
     if (!chatId || !message || !scheduledAt || !recurring) {
       return NextResponse.json(
-        { error: "Missing required fields: chatId, message, scheduledAt, recurring" },
-        { status: 400 }
+        {
+          error:
+            "Missing required fields: chatId, message, scheduledAt, recurring",
+        },
+        { status: 400 },
       );
     }
 
@@ -18,7 +21,7 @@ export async function POST(req: NextRequest) {
     if (isNaN(scheduled.getTime())) {
       return NextResponse.json(
         { error: "Invalid scheduledAt date format." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -33,11 +36,27 @@ export async function POST(req: NextRequest) {
     };
 
     const ref = await db.collection("scheduled_messages").add(doc);
-
     return NextResponse.json({ id: ref.id, ...doc }, { status: 201 });
   } catch (err: unknown) {
-    console.error("[schedule] Error:", err);
-    const message = err instanceof Error ? err.message : "Internal server error";
+    console.error("[schedule POST] Error:", err);
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { id } = await req.json();
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+    const db = getFirebaseAdmin();
+    await db.collection("scheduled_messages").doc(id).delete();
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    console.error("[schedule DELETE] Error:", err);
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -59,7 +78,8 @@ export async function GET() {
     return NextResponse.json(messages);
   } catch (err: unknown) {
     console.error("[schedule GET] Error:", err);
-    const message = err instanceof Error ? err.message : "Internal server error";
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
