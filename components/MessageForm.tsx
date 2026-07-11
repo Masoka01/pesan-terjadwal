@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { CreateMessagePayload, RecurringType } from "@/types";
 
 interface Props {
@@ -22,11 +22,143 @@ const MONTHS = [
   "Des",
 ];
 const DAYS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
-
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) =>
   String(i).padStart(2, "0"),
 );
+
+const ITEM_H = 36;
+const VISIBLE = 5;
+
+interface DrumPickerProps {
+  items: string[];
+  value: string;
+  onChange: (v: string) => void;
+}
+
+function DrumPicker({ items, value, onChange }: DrumPickerProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const startY = useRef(0);
+  const startScroll = useRef(0);
+  const selectedIdx = items.indexOf(value);
+
+  const scrollToIdx = useCallback((idx: number, smooth = true) => {
+    if (!ref.current) return;
+    ref.current.scrollTo({
+      top: idx * ITEM_H,
+      behavior: smooth ? "smooth" : "instant",
+    });
+  }, []);
+
+  useEffect(() => {
+    scrollToIdx(selectedIdx, false);
+  }, []);
+
+  function onScroll() {
+    if (!ref.current) return;
+    const idx = Math.round(ref.current.scrollTop / ITEM_H);
+    const clamped = Math.max(0, Math.min(items.length - 1, idx));
+    if (items[clamped] !== value) onChange(items[clamped]);
+  }
+
+  function onMouseDown(e: React.MouseEvent) {
+    isDragging.current = true;
+    startY.current = e.clientY;
+    startScroll.current = ref.current?.scrollTop ?? 0;
+  }
+
+  function onMouseMove(e: React.MouseEvent) {
+    if (!isDragging.current || !ref.current) return;
+    const delta = startY.current - e.clientY;
+    ref.current.scrollTop = startScroll.current + delta;
+  }
+
+  function onMouseUp() {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    snapToNearest();
+  }
+
+  function snapToNearest() {
+    if (!ref.current) return;
+    const idx = Math.round(ref.current.scrollTop / ITEM_H);
+    scrollToIdx(Math.max(0, Math.min(items.length - 1, idx)));
+  }
+
+  const containerH = ITEM_H * VISIBLE;
+  const padH = ITEM_H * Math.floor(VISIBLE / 2);
+
+  return (
+    <div
+      className="relative select-none"
+      style={{ width: 56, height: containerH }}
+    >
+      {/* Highlight bar */}
+      <div
+        className="absolute left-0 right-0 rounded-lg bg-blue-600/20 border border-blue-500/40 pointer-events-none z-10"
+        style={{ top: padH, height: ITEM_H }}
+      />
+      {/* Top fade */}
+      <div
+        className="absolute inset-x-0 top-0 z-10 pointer-events-none"
+        style={{
+          height: padH,
+          background: "linear-gradient(to bottom, #0f1117, transparent)",
+        }}
+      />
+      {/* Bottom fade */}
+      <div
+        className="absolute inset-x-0 bottom-0 z-10 pointer-events-none"
+        style={{
+          height: padH,
+          background: "linear-gradient(to top, #0f1117, transparent)",
+        }}
+      />
+
+      <div
+        ref={ref}
+        onScroll={onScroll}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        className="overflow-y-scroll cursor-grab active:cursor-grabbing"
+        style={{
+          height: containerH,
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+        }}
+      >
+        {/* Top padding */}
+        <div style={{ height: padH }} />
+        {items.map((item) => (
+          <div
+            key={item}
+            onClick={() => {
+              onChange(item);
+              scrollToIdx(items.indexOf(item));
+            }}
+            className={`flex items-center justify-center font-mono text-sm transition-all cursor-pointer`}
+            style={{ height: ITEM_H }}
+          >
+            <span
+              className={
+                item === value
+                  ? "text-white font-bold text-base"
+                  : "text-slate-600 text-sm"
+              }
+            >
+              {item}
+            </span>
+          </div>
+        ))}
+        {/* Bottom padding */}
+        <div style={{ height: padH }} />
+      </div>
+    </div>
+  );
+}
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -54,9 +186,8 @@ export default function MessageForm({ onSuccess }: Props) {
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (calRef.current && !calRef.current.contains(e.target as Node)) {
+      if (calRef.current && !calRef.current.contains(e.target as Node))
         setShowCal(false);
-      }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -156,9 +287,6 @@ export default function MessageForm({ onSuccess }: Props) {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
 
-  const selectClass =
-    "bg-[#161b27] border border-[#252d3d] text-white text-sm rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition appearance-none cursor-pointer";
-
   return (
     <div className="bg-[#0f1117] border border-[#1e2433] rounded-2xl p-6 shadow-lg">
       <h2 className="text-lg font-semibold text-white mb-5 flex items-center gap-2">
@@ -207,7 +335,7 @@ export default function MessageForm({ onSuccess }: Props) {
           <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
             Send At
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-start">
             {/* Date picker */}
             <div className="relative flex-1" ref={calRef}>
               <button
@@ -302,42 +430,11 @@ export default function MessageForm({ onSuccess }: Props) {
               )}
             </div>
 
-            {/* Time — dropdown select */}
-            <div className="flex items-center gap-1.5 bg-[#161b27] border border-[#252d3d] rounded-lg px-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition">
-              <svg
-                className="w-4 h-4 text-slate-500 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="12" r="9" strokeWidth="1.5" />
-                <path d="M12 7v5l3 3" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-              <select
-                value={hour}
-                onChange={(e) => setHour(e.target.value)}
-                className={selectClass}
-                style={{ WebkitAppearance: "none" }}
-              >
-                {HOURS.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-              <span className="text-slate-500 font-bold text-sm">:</span>
-              <select
-                value={minute}
-                onChange={(e) => setMinute(e.target.value)}
-                className={selectClass}
-                style={{ WebkitAppearance: "none" }}
-              >
-                {MINUTES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+            {/* Drum time picker */}
+            <div className="bg-[#0f1117] border border-[#1e2433] rounded-xl px-3 py-1 flex items-center gap-1">
+              <DrumPicker items={HOURS} value={hour} onChange={setHour} />
+              <span className="text-slate-500 font-bold text-lg mb-0.5">:</span>
+              <DrumPicker items={MINUTES} value={minute} onChange={setMinute} />
             </div>
           </div>
 
