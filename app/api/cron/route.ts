@@ -1,57 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebase";
-import { computeNextRunAt } from "@/lib/telegram";
+import { sendTelegramMessage, computeNextRunAt } from "@/lib/telegram";
 import { ScheduledMessage } from "@/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-const BOT_TOKENS = [
-  process.env.TELEGRAM_BOT_TOKEN_1,
-  process.env.TELEGRAM_BOT_TOKEN_2,
-  process.env.TELEGRAM_BOT_TOKEN_3,
-  process.env.TELEGRAM_BOT_TOKEN_4,
-  process.env.TELEGRAM_BOT_TOKEN_5,
-].filter(Boolean) as string[];
-
-async function sendWithFallback(chatId: string, text: string): Promise<{
-  ok: boolean;
-  botIndex?: number;
-  error?: string;
-}> {
-  for (let i = 0; i < BOT_TOKENS.length; i++) {
-    const token = BOT_TOKENS[i];
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-      });
-      const data = await res.json() as { ok: boolean; description?: string };
-
-      if (data.ok) {
-        return { ok: true, botIndex: i + 1 };
-      }
-
-      const err = data.description ?? "Unknown error";
-      const isBlocked = err.includes("bot was blocked") || err.includes("user is deactivated") || err.includes("chat not found") || err.includes("Forbidden");
-
-      console.warn(`[cron] Bot ${i + 1} failed: ${err}`);
-
-      // Only fallback if blocked/forbidden, stop immediately on other errors
-      if (!isBlocked) {
-        return { ok: false, error: `Bot ${i + 1}: ${err}` };
-      }
-
-      // Blocked — try next bot
-    } catch (err) {
-      console.warn(`[cron] Bot ${i + 1} network error:`, err);
-      // Network error — try next bot
-    }
-  }
-
-  return { ok: false, error: "All bots failed or are blocked." };
-}
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -75,34 +28,36 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ processed: 0, message: "No messages due." });
     }
 
-    const results: Array<{ id: string; status: string; botUsed?: number; error?: string }> = [];
+    const results: Array<{ id: string; status: string; error?: string }> = [];
 
     for (const doc of snapshot.docs) {
       const data = doc.data() as Omit<ScheduledMessage, "id">;
       const id = doc.id;
 
-      const { ok, botIndex, error } = await sendWithFallback(data.chatId, data.message);
+      const { ok, error } = await sendTelegramMessage(data.chatId, data.message);
 
       if (ok) {
         if (data.recurring === "once") {
-          await doc.ref.update({ status: "sent", sentAt: now.toISOString(), sentByBot: botIndex });
-          results.push({ id, status: "sent", botUsed: botIndex });
+          await doc.ref.update({ status: "sent", sentAt: now.toISOString() });
+          results.push({ id, status: "sent" });
         } else {
           const nextRunAt = computeNextRunAt(
             data.nextRunAt ?? data.scheduledAt,
-            data.recurring as "daily" | "weekly"
+            data.recurring as "daily" | "weekly" | "hourly",
+            data.intervalHours
           );
-          await doc.ref.update({ status: "sent", sentAt: now.toISOString(), sentByBot: botIndex });
+          await doc.ref.update({ status: "sent", sentAt: now.toISOString() });
           await db.collection("scheduled_messages").add({
             chatId: data.chatId,
             message: data.message,
             scheduledAt: nextRunAt,
             recurring: data.recurring,
+            intervalHours: data.intervalHours ?? null,
             status: "pending",
             createdAt: now.toISOString(),
             nextRunAt,
           });
-          results.push({ id, status: "sent-recurring", botUsed: botIndex });
+          results.push({ id, status: "sent-recurring" });
         }
       } else {
         await doc.ref.update({ status: "failed", errorMessage: error ?? "All bots failed." });

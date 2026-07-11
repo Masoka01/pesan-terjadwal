@@ -222,85 +222,51 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
 
       {/* Time picker */}
       <div className="px-4 py-3 border-t border-[#1e2433]">
-        <p className="text-xs text-slate-600 uppercase tracking-wide font-medium mb-2">
+        <p className="text-xs text-slate-600 uppercase tracking-wide font-medium mb-3">
           Waktu
         </p>
-        <div className="flex items-center gap-2">
-          {/* Hour : Minute */}
-          <div className="flex items-center gap-1 bg-[#161b27] border border-[#252d3d] rounded-xl px-3 py-2 focus-within:border-blue-500 transition">
-            <svg
-              className="w-3.5 h-3.5 text-slate-500 mr-1"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="12" r="9" strokeWidth="1.5" />
-              <path d="M12 7v5l3 3" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <input
-              type="number"
-              min={1}
-              max={12}
-              value={hour12}
-              onChange={(e) => setHour12(e.target.value)}
-              onBlur={(e) => setHour12(clampH(e.target.value))}
-              className="w-7 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-            />
-            <span className="text-slate-500 font-bold">:</span>
-            <input
-              type="number"
-              min={0}
-              max={59}
-              value={minute}
-              onChange={(e) => setMinute(e.target.value)}
-              onBlur={(e) => setMinute(clampM(e.target.value))}
-              className="w-7 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-            />
-          </div>
-
-          {/* AM/PM toggle */}
-          <div className="flex rounded-xl overflow-hidden border border-[#252d3d]">
-            {(["AM", "PM"] as const).map((p) => (
+        {/* Hour select grid */}
+        <div className="mb-2">
+          <p className="text-[10px] text-slate-700 mb-1.5">Jam</p>
+          <div className="grid grid-cols-6 gap-1">
+            {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => (
               <button
-                key={p}
+                key={h}
                 type="button"
-                onClick={() => setPeriod(p)}
-                className={`px-3 py-2 text-xs font-semibold transition ${
-                  period === p
+                onClick={() => {
+                  const n = parseInt(h);
+                  setHour12(to12h(h));
+                  setPeriod(n < 12 ? "AM" : "PM");
+                }}
+                className={`py-1.5 rounded-lg text-xs font-mono font-medium transition ${
+                  getHour24() === h
                     ? "bg-blue-600 text-white"
-                    : "bg-[#161b27] text-slate-500 hover:text-white"
+                    : "bg-[#161b27] text-slate-400 hover:bg-[#252d3d] hover:text-white"
                 }`}
               >
-                {p}
+                {h}
               </button>
             ))}
           </div>
-
-          {/* Quick times */}
-          <div className="flex gap-1">
-            {quickTimes.map((t) => {
-              const active = hour12 === t.h && minute === t.m && period === t.p;
-              return (
-                <button
-                  key={t.label}
-                  type="button"
-                  onClick={() => {
-                    setHour12(t.h);
-                    setMinute(t.m);
-                    setPeriod(t.p);
-                  }}
-                  className={`text-xs px-2 py-1.5 rounded-lg transition font-medium border ${
-                    active
-                      ? "bg-blue-600 border-blue-500 text-white"
-                      : "bg-[#161b27] border-[#252d3d] text-slate-500 hover:text-white hover:bg-[#252d3d]"
-                  }`}
-                >
-                  {t.label.split(" ")[0]}
-                  <br />
-                  <span className="text-[10px]">{t.p}</span>
-                </button>
-              );
-            })}
+        </div>
+        {/* Minute select */}
+        <div>
+          <p className="text-[10px] text-slate-700 mb-1.5">Menit</p>
+          <div className="grid grid-cols-6 gap-1">
+            {["00","05","10","15","20","25","30","35","40","45","50","55"].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMinute(m)}
+                className={`py-1.5 rounded-lg text-xs font-mono font-medium transition ${
+                  minute === m
+                    ? "bg-blue-600 text-white"
+                    : "bg-[#161b27] text-slate-400 hover:bg-[#252d3d] hover:text-white"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -343,6 +309,7 @@ export default function MessageForm({ onSuccess }: Props) {
   const [chatId, setChatId] = useState("");
   const [message, setMessage] = useState("");
   const [recurring, setRecurring] = useState<RecurringType>("once");
+  const [intervalHours, setIntervalHours] = useState<number>(4);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -399,6 +366,7 @@ export default function MessageForm({ onSuccess }: Props) {
         message: message.trim(),
         scheduledAt,
         recurring,
+        intervalHours: recurring === "hourly" ? intervalHours : undefined,
       };
       const res = await fetch("/api/schedule", {
         method: "POST",
@@ -411,6 +379,7 @@ export default function MessageForm({ onSuccess }: Props) {
       setMessage("");
       setPickerValue({ date: null, hour: "08", minute: "00" });
       setRecurring("once");
+      setIntervalHours(4);
       onSuccess();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan.");
@@ -530,7 +499,7 @@ export default function MessageForm({ onSuccess }: Props) {
             Repeat
           </label>
           <div className="flex gap-2">
-            {(["once", "daily", "weekly"] as RecurringType[]).map((opt) => (
+            {(["once", "daily", "weekly", "hourly"] as RecurringType[]).map((opt) => (
               <button
                 type="button"
                 key={opt}
@@ -541,10 +510,26 @@ export default function MessageForm({ onSuccess }: Props) {
                     : "bg-[#161b27] border-[#252d3d] text-slate-400 hover:border-slate-500"
                 }`}
               >
-                {opt}
+                {opt === "hourly" ? "Per Jam" : opt === "once" ? "Sekali" : opt === "daily" ? "Harian" : "Mingguan"}
               </button>
             ))}
           </div>
+          {recurring === "hourly" && (
+            <div className="mt-3 flex items-center gap-3">
+              <label className="text-xs text-slate-400 whitespace-nowrap">Setiap</label>
+              <div className="flex items-center gap-2 bg-[#161b27] border border-[#252d3d] rounded-lg px-3 py-2 focus-within:border-blue-500 transition w-full">
+                <input
+                  type="number"
+                  min={1}
+                  max={23}
+                  value={intervalHours}
+                  onChange={(e) => setIntervalHours(Math.min(23, Math.max(1, parseInt(e.target.value) || 1)))}
+                  className="w-full bg-transparent text-white text-sm font-mono focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="text-slate-500 text-sm whitespace-nowrap">jam sekali</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (

@@ -40,7 +40,7 @@ export default function HomePage() {
             Schedule Telegram Messages
           </h2>
           <p className="text-slate-500 text-sm max-w-md mx-auto">
-            Set it once. Send once, daily, or weekly — automatically via Vercel Cron.
+            Jadwalkan pesan sekali, harian, mingguan, atau per jam — otomatis.
           </p>
         </div>
 
@@ -49,29 +49,7 @@ export default function HomePage() {
           <MessageForm onSuccess={handleSuccess} />
           <MessageList refreshKey={refreshKey} />
         </div>
-
-        {/* Stats strip */}
-        <div className="mt-6 grid grid-cols-3 gap-4">
-          {[
-            { label: "Checks every", value: "1 min", accent: "text-blue-400" },
-            { label: "Powered by", value: "Vercel Cron", accent: "text-purple-400" },
-            { label: "Storage", value: "Firestore", accent: "text-orange-400" },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="bg-[#0f1117] border border-[#1e2433] rounded-xl px-4 py-3 text-center"
-            >
-              <p className={`text-lg font-bold ${s.accent}`}>{s.value}</p>
-              <p className="text-xs text-slate-600 mt-0.5">{s.label}</p>
-            </div>
-          ))}
-        </div>
       </main>
-
-      {/* Footer */}
-      <footer className="mt-12 border-t border-[#1e2433] py-6 text-center text-xs text-slate-700">
-        Telegram Scheduler · Built with Next.js 14, Firebase &amp; Vercel Cron
-      </footer>
     </div>
   );
 }
