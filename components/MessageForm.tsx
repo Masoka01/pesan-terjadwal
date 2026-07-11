@@ -44,6 +44,28 @@ function getFirstDayOfMonth(year: number, month: number) {
   return new Date(year, month, 1).getDay();
 }
 
+function to12h(h24: string) {
+  const n = parseInt(h24);
+  if (n === 0) return "12";
+  if (n > 12) return String(n - 12).padStart(2, "0");
+  return String(n).padStart(2, "0");
+}
+function to24h(h12: string, period: "AM" | "PM") {
+  let n = parseInt(h12);
+  if (period === "AM") {
+    if (n === 12) n = 0;
+  } else {
+    if (n !== 12) n += 12;
+  }
+  return String(n).padStart(2, "0");
+}
+function formatAmPm(h24: string, minute: string) {
+  const n = parseInt(h24);
+  const period = n < 12 ? "AM" : "PM";
+  const h12 = to12h(h24);
+  return `${h12}:${minute} ${period}`;
+}
+
 interface DateTimePickerProps {
   value: { date: Date | null; hour: string; minute: string };
   onChange: (v: { date: Date | null; hour: string; minute: string }) => void;
@@ -58,9 +80,16 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
   const [calMonth, setCalMonth] = useState(
     value.date?.getMonth() ?? now.getMonth(),
   );
-  const [hour, setHour] = useState(value.hour);
-  const [minute, setMinute] = useState(value.minute);
   const [selectedDate, setSelectedDate] = useState<Date | null>(value.date);
+
+  const initN = parseInt(value.hour);
+  const [hour12, setHour12] = useState(to12h(value.hour));
+  const [minute, setMinute] = useState(value.minute);
+  const [period, setPeriod] = useState<"AM" | "PM">(initN < 12 ? "AM" : "PM");
+
+  function getHour24() {
+    return to24h(hour12, period);
+  }
 
   const daysInMonth = getDaysInMonth(calYear, calMonth);
   const firstDay = getFirstDayOfMonth(calYear, calMonth);
@@ -103,8 +132,8 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
 
   function clampH(v: string) {
     const n = parseInt(v);
-    if (isNaN(n)) return "00";
-    return String(Math.min(23, Math.max(0, n))).padStart(2, "0");
+    if (isNaN(n)) return "12";
+    return String(Math.min(12, Math.max(1, n))).padStart(2, "0");
   }
   function clampM(v: string) {
     const n = parseInt(v);
@@ -113,9 +142,17 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
   }
 
   function handleConfirm() {
-    onChange({ date: selectedDate, hour, minute });
+    onChange({ date: selectedDate, hour: getHour24(), minute });
     onClose();
   }
+
+  const previewTime = formatAmPm(getHour24(), minute);
+
+  // Quick time shortcuts (12h display, stored as 24h)
+  const quickTimes = [
+    { label: "12:00 PM", h: "12", m: "00", p: "PM" as const },
+    { label: "12:00 AM", h: "12", m: "00", p: "AM" as const },
+  ];
 
   return (
     <div className="w-80 bg-[#0f1117] border border-[#252d3d] rounded-2xl shadow-2xl overflow-hidden">
@@ -189,9 +226,10 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
           Waktu
         </p>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-[#161b27] border border-[#252d3d] rounded-xl px-3 py-2 flex-1 focus-within:border-blue-500 transition">
+          {/* Hour : Minute */}
+          <div className="flex items-center gap-1 bg-[#161b27] border border-[#252d3d] rounded-xl px-3 py-2 focus-within:border-blue-500 transition">
             <svg
-              className="w-3.5 h-3.5 text-slate-500"
+              className="w-3.5 h-3.5 text-slate-500 mr-1"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -201,12 +239,12 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
             </svg>
             <input
               type="number"
-              min={0}
-              max={23}
-              value={hour}
-              onChange={(e) => setHour(e.target.value)}
-              onBlur={(e) => setHour(clampH(e.target.value))}
-              className="w-8 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+              min={1}
+              max={12}
+              value={hour12}
+              onChange={(e) => setHour12(e.target.value)}
+              onBlur={(e) => setHour12(clampH(e.target.value))}
+              className="w-7 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
             />
             <span className="text-slate-500 font-bold">:</span>
             <input
@@ -216,31 +254,50 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
               value={minute}
               onChange={(e) => setMinute(e.target.value)}
               onBlur={(e) => setMinute(clampM(e.target.value))}
-              className="w-8 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+              className="w-7 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
             />
-            <span className="text-xs text-slate-600 ml-1">24j</span>
           </div>
 
-          {/* Quick time buttons */}
+          {/* AM/PM toggle */}
+          <div className="flex rounded-xl overflow-hidden border border-[#252d3d]">
+            {(["AM", "PM"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-2 text-xs font-semibold transition ${
+                  period === p
+                    ? "bg-blue-600 text-white"
+                    : "bg-[#161b27] text-slate-500 hover:text-white"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {/* Quick times */}
           <div className="flex gap-1">
-            {["12:00", "00:00"].map((t) => {
-              const [h, m] = t.split(":");
-              const active = hour === h && minute === m;
+            {quickTimes.map((t) => {
+              const active = hour12 === t.h && minute === t.m && period === t.p;
               return (
                 <button
-                  key={t}
+                  key={t.label}
                   type="button"
                   onClick={() => {
-                    setHour(h);
-                    setMinute(m);
+                    setHour12(t.h);
+                    setMinute(t.m);
+                    setPeriod(t.p);
                   }}
-                  className={`text-xs px-2 py-1.5 rounded-lg transition font-medium ${
+                  className={`text-xs px-2 py-1.5 rounded-lg transition font-medium border ${
                     active
-                      ? "bg-blue-600 text-white"
-                      : "bg-[#161b27] text-slate-500 hover:text-white hover:bg-[#252d3d] border border-[#252d3d]"
+                      ? "bg-blue-600 border-blue-500 text-white"
+                      : "bg-[#161b27] border-[#252d3d] text-slate-500 hover:text-white hover:bg-[#252d3d]"
                   }`}
                 >
-                  {t}
+                  {t.label.split(" ")[0]}
+                  <br />
+                  <span className="text-[10px]">{t.p}</span>
                 </button>
               );
             })}
@@ -254,7 +311,7 @@ function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
           {selectedDate ? (
             <span className="text-slate-300">
               {selectedDate.getDate()} {MONTHS_SHORT[selectedDate.getMonth()]}{" "}
-              {selectedDate.getFullYear()}, {hour}:{minute}
+              {selectedDate.getFullYear()}, {previewTime}
             </span>
           ) : (
             <span>Pilih tanggal</span>
@@ -313,7 +370,7 @@ export default function MessageForm({ onSuccess }: Props) {
   function formatPickerDisplay() {
     if (!pickerValue.date) return null;
     const d = pickerValue.date;
-    return `${d.getDate()} ${["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"][d.getMonth()]} ${d.getFullYear()}, ${pickerValue.hour}:${pickerValue.minute}`;
+    return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}, ${formatAmPm(pickerValue.hour, pickerValue.minute)}`;
   }
 
   function getScheduledAt(): string | null {
@@ -403,7 +460,6 @@ export default function MessageForm({ onSuccess }: Props) {
           </p>
         </div>
 
-        {/* Single datetime button */}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
             Send At
