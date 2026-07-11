@@ -23,6 +23,11 @@ const MONTHS = [
 ];
 const DAYS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES = Array.from({ length: 60 }, (_, i) =>
+  String(i).padStart(2, "0"),
+);
+
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
 }
@@ -37,20 +42,16 @@ export default function MessageForm({ onSuccess }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Calendar state
   const now = new Date();
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [showCal, setShowCal] = useState(false);
-
-  // Time state
   const [hour, setHour] = useState("08");
   const [minute, setMinute] = useState("00");
 
   const calRef = useRef<HTMLDivElement>(null);
 
-  // Close calendar on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (calRef.current && !calRef.current.contains(e.target as Node)) {
@@ -73,13 +74,10 @@ export default function MessageForm({ onSuccess }: Props) {
       setCalYear((y) => y + 1);
     } else setCalMonth((m) => m + 1);
   }
-
   function selectDay(day: number) {
-    const d = new Date(calYear, calMonth, day);
-    setSelectedDate(d);
+    setSelectedDate(new Date(calYear, calMonth, day));
     setShowCal(false);
   }
-
   function isDisabledDay(day: number) {
     const d = new Date(calYear, calMonth, day);
     d.setHours(0, 0, 0, 0);
@@ -88,8 +86,9 @@ export default function MessageForm({ onSuccess }: Props) {
     return d < today;
   }
   function isToday(day: number) {
-    const d = new Date(calYear, calMonth, day);
-    return d.toDateString() === now.toDateString();
+    return (
+      new Date(calYear, calMonth, day).toDateString() === now.toDateString()
+    );
   }
   function isSelected(day: number) {
     if (!selectedDate) return false;
@@ -98,18 +97,10 @@ export default function MessageForm({ onSuccess }: Props) {
       selectedDate.toDateString()
     );
   }
-
-  function clampHour(v: string) {
-    const n = parseInt(v);
-    if (isNaN(n)) return "00";
-    return String(Math.min(23, Math.max(0, n))).padStart(2, "0");
+  function formatDisplay() {
+    if (!selectedDate) return null;
+    return `${selectedDate.getDate()} ${MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear()}`;
   }
-  function clampMinute(v: string) {
-    const n = parseInt(v);
-    if (isNaN(n)) return "00";
-    return String(Math.min(59, Math.max(0, n))).padStart(2, "0");
-  }
-
   function getScheduledAt(): string | null {
     if (!selectedDate) return null;
     const d = new Date(selectedDate);
@@ -117,15 +108,9 @@ export default function MessageForm({ onSuccess }: Props) {
     return d.toISOString();
   }
 
-  function formatDisplay() {
-    if (!selectedDate) return null;
-    return `${selectedDate.getDate()} ${MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear()}`;
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
     const scheduledAt = getScheduledAt();
     if (!chatId.trim() || !message.trim() || !scheduledAt) {
       setError("Semua field wajib diisi, termasuk tanggal & jam.");
@@ -135,7 +120,6 @@ export default function MessageForm({ onSuccess }: Props) {
       setError("Waktu pengiriman harus di masa depan.");
       return;
     }
-
     setLoading(true);
     try {
       const payload: CreateMessagePayload = {
@@ -151,7 +135,6 @@ export default function MessageForm({ onSuccess }: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Gagal menjadwalkan pesan.");
-
       setChatId("");
       setMessage("");
       setSelectedDate(null);
@@ -173,6 +156,9 @@ export default function MessageForm({ onSuccess }: Props) {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
 
+  const selectClass =
+    "bg-[#161b27] border border-[#252d3d] text-white text-sm rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition appearance-none cursor-pointer";
+
   return (
     <div className="bg-[#0f1117] border border-[#1e2433] rounded-2xl p-6 shadow-lg">
       <h2 className="text-lg font-semibold text-white mb-5 flex items-center gap-2">
@@ -190,11 +176,11 @@ export default function MessageForm({ onSuccess }: Props) {
             type="text"
             value={chatId}
             onChange={(e) => setChatId(e.target.value)}
-            placeholder="e.g. -1001234567890 or @username"
+            placeholder="e.g. 8159992897 atau -1001234567890"
             className="w-full bg-[#161b27] border border-[#252d3d] text-white placeholder-slate-600 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
           />
           <p className="text-xs text-slate-600 mt-1">
-            Numeric ID, @username, atau ID grup/channel.
+            Gunakan numeric ID dari getUpdates, bukan @username.
           </p>
         </div>
 
@@ -222,7 +208,7 @@ export default function MessageForm({ onSuccess }: Props) {
             Send At
           </label>
           <div className="flex gap-2">
-            {/* Date picker trigger */}
+            {/* Date picker */}
             <div className="relative flex-1" ref={calRef}>
               <button
                 type="button"
@@ -256,10 +242,8 @@ export default function MessageForm({ onSuccess }: Props) {
                 </span>
               </button>
 
-              {/* Calendar dropdown */}
               {showCal && (
                 <div className="absolute z-50 mt-2 w-72 bg-[#161b27] border border-[#252d3d] rounded-xl shadow-2xl p-4">
-                  {/* Month nav */}
                   <div className="flex items-center justify-between mb-4">
                     <button
                       type="button"
@@ -279,8 +263,6 @@ export default function MessageForm({ onSuccess }: Props) {
                       ›
                     </button>
                   </div>
-
-                  {/* Day headers */}
                   <div className="grid grid-cols-7 mb-1">
                     {DAYS.map((d) => (
                       <div
@@ -291,8 +273,6 @@ export default function MessageForm({ onSuccess }: Props) {
                       </div>
                     ))}
                   </div>
-
-                  {/* Days grid */}
                   <div className="grid grid-cols-7 gap-y-1">
                     {calCells.map((day, i) => (
                       <div key={i} className="flex items-center justify-center">
@@ -322,10 +302,10 @@ export default function MessageForm({ onSuccess }: Props) {
               )}
             </div>
 
-            {/* Time picker — 24 jam */}
-            <div className="flex items-center gap-1 bg-[#161b27] border border-[#252d3d] rounded-lg px-3 py-2.5 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition">
+            {/* Time — dropdown select */}
+            <div className="flex items-center gap-1.5 bg-[#161b27] border border-[#252d3d] rounded-lg px-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition">
               <svg
-                className="w-4 h-4 text-slate-500 shrink-0 mr-1"
+                className="w-4 h-4 text-slate-500 shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -333,29 +313,34 @@ export default function MessageForm({ onSuccess }: Props) {
                 <circle cx="12" cy="12" r="9" strokeWidth="1.5" />
                 <path d="M12 7v5l3 3" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
-              <input
-                type="number"
-                min={0}
-                max={23}
+              <select
                 value={hour}
                 onChange={(e) => setHour(e.target.value)}
-                onBlur={(e) => setHour(clampHour(e.target.value))}
-                className="w-8 bg-transparent text-white text-sm text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-              />
+                className={selectClass}
+                style={{ WebkitAppearance: "none" }}
+              >
+                {HOURS.map((h) => (
+                  <option key={h} value={h}>
+                    {h}
+                  </option>
+                ))}
+              </select>
               <span className="text-slate-500 font-bold text-sm">:</span>
-              <input
-                type="number"
-                min={0}
-                max={59}
+              <select
                 value={minute}
                 onChange={(e) => setMinute(e.target.value)}
-                onBlur={(e) => setMinute(clampMinute(e.target.value))}
-                className="w-8 bg-transparent text-white text-sm text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-              />
+                className={selectClass}
+                style={{ WebkitAppearance: "none" }}
+              >
+                {MINUTES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Preview */}
           {selectedDate && (
             <p className="text-xs text-slate-500 mt-1.5">
               Akan dikirim:{" "}

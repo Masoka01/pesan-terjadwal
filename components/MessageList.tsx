@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ScheduledMessage, MessageStatus } from "@/types";
 
 interface Props {
@@ -42,6 +42,8 @@ export default function MessageList({ refreshKey }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(30);
+  const countRef = useRef(30);
 
   const fetchMessages = useCallback(async () => {
     setError(null);
@@ -61,6 +63,21 @@ export default function MessageList({ refreshKey }: Props) {
     setLoading(true);
     fetchMessages();
   }, [fetchMessages, refreshKey]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => fetchMessages(), 30000);
+    return () => clearInterval(interval);
+  }, [fetchMessages]);
+
+  // Countdown timer
+  useEffect(() => {
+    const tick = setInterval(() => {
+      countRef.current = countRef.current <= 1 ? 30 : countRef.current - 1;
+      setCountdown(countRef.current);
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
 
   async function handleDelete(id: string) {
     if (confirmId !== id) {
@@ -95,10 +112,12 @@ export default function MessageList({ refreshKey }: Props) {
           onClick={() => {
             setLoading(true);
             fetchMessages();
+            countRef.current = 30;
+            setCountdown(30);
           }}
           className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
         >
-          ↻ Refresh
+          ↻ Refresh <span className="text-slate-700">{countdown}s</span>
         </button>
       </div>
 
