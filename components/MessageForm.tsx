@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { CreateMessagePayload, RecurringType } from "@/types";
 
 interface Props {
@@ -8,6 +8,20 @@ interface Props {
 }
 
 const MONTHS = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+];
+const MONTHS_SHORT = [
   "Jan",
   "Feb",
   "Mar",
@@ -22,143 +36,6 @@ const MONTHS = [
   "Des",
 ];
 const DAYS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-const MINUTES = Array.from({ length: 60 }, (_, i) =>
-  String(i).padStart(2, "0"),
-);
-
-const ITEM_H = 36;
-const VISIBLE = 5;
-
-interface DrumPickerProps {
-  items: string[];
-  value: string;
-  onChange: (v: string) => void;
-}
-
-function DrumPicker({ items, value, onChange }: DrumPickerProps) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
-  const startY = useRef(0);
-  const startScroll = useRef(0);
-  const selectedIdx = items.indexOf(value);
-
-  const scrollToIdx = useCallback((idx: number, smooth = true) => {
-    if (!ref.current) return;
-    ref.current.scrollTo({
-      top: idx * ITEM_H,
-      behavior: smooth ? "smooth" : "instant",
-    });
-  }, []);
-
-  useEffect(() => {
-    scrollToIdx(selectedIdx, false);
-  }, []);
-
-  function onScroll() {
-    if (!ref.current) return;
-    const idx = Math.round(ref.current.scrollTop / ITEM_H);
-    const clamped = Math.max(0, Math.min(items.length - 1, idx));
-    if (items[clamped] !== value) onChange(items[clamped]);
-  }
-
-  function onMouseDown(e: React.MouseEvent) {
-    isDragging.current = true;
-    startY.current = e.clientY;
-    startScroll.current = ref.current?.scrollTop ?? 0;
-  }
-
-  function onMouseMove(e: React.MouseEvent) {
-    if (!isDragging.current || !ref.current) return;
-    const delta = startY.current - e.clientY;
-    ref.current.scrollTop = startScroll.current + delta;
-  }
-
-  function onMouseUp() {
-    if (!isDragging.current) return;
-    isDragging.current = false;
-    snapToNearest();
-  }
-
-  function snapToNearest() {
-    if (!ref.current) return;
-    const idx = Math.round(ref.current.scrollTop / ITEM_H);
-    scrollToIdx(Math.max(0, Math.min(items.length - 1, idx)));
-  }
-
-  const containerH = ITEM_H * VISIBLE;
-  const padH = ITEM_H * Math.floor(VISIBLE / 2);
-
-  return (
-    <div
-      className="relative select-none"
-      style={{ width: 56, height: containerH }}
-    >
-      {/* Highlight bar */}
-      <div
-        className="absolute left-0 right-0 rounded-lg bg-blue-600/20 border border-blue-500/40 pointer-events-none z-10"
-        style={{ top: padH, height: ITEM_H }}
-      />
-      {/* Top fade */}
-      <div
-        className="absolute inset-x-0 top-0 z-10 pointer-events-none"
-        style={{
-          height: padH,
-          background: "linear-gradient(to bottom, #0f1117, transparent)",
-        }}
-      />
-      {/* Bottom fade */}
-      <div
-        className="absolute inset-x-0 bottom-0 z-10 pointer-events-none"
-        style={{
-          height: padH,
-          background: "linear-gradient(to top, #0f1117, transparent)",
-        }}
-      />
-
-      <div
-        ref={ref}
-        onScroll={onScroll}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        className="overflow-y-scroll cursor-grab active:cursor-grabbing"
-        style={{
-          height: containerH,
-          scrollbarWidth: "none",
-          msOverflowStyle: "none",
-        }}
-      >
-        {/* Top padding */}
-        <div style={{ height: padH }} />
-        {items.map((item) => (
-          <div
-            key={item}
-            onClick={() => {
-              onChange(item);
-              scrollToIdx(items.indexOf(item));
-            }}
-            className={`flex items-center justify-center font-mono text-sm transition-all cursor-pointer`}
-            style={{ height: ITEM_H }}
-          >
-            <span
-              className={
-                item === value
-                  ? "text-white font-bold text-base"
-                  : "text-slate-600 text-sm"
-              }
-            >
-              {item}
-            </span>
-          </div>
-        ))}
-        {/* Bottom padding */}
-        <div style={{ height: padH }} />
-      </div>
-    </div>
-  );
-}
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -167,31 +44,30 @@ function getFirstDayOfMonth(year: number, month: number) {
   return new Date(year, month, 1).getDay();
 }
 
-export default function MessageForm({ onSuccess }: Props) {
-  const [chatId, setChatId] = useState("");
-  const [message, setMessage] = useState("");
-  const [recurring, setRecurring] = useState<RecurringType>("once");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface DateTimePickerProps {
+  value: { date: Date | null; hour: string; minute: string };
+  onChange: (v: { date: Date | null; hour: string; minute: string }) => void;
+  onClose: () => void;
+}
 
+function DateTimePicker({ value, onChange, onClose }: DateTimePickerProps) {
   const now = new Date();
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [calYear, setCalYear] = useState(now.getFullYear());
-  const [calMonth, setCalMonth] = useState(now.getMonth());
-  const [showCal, setShowCal] = useState(false);
-  const [hour, setHour] = useState("08");
-  const [minute, setMinute] = useState("00");
+  const [calYear, setCalYear] = useState(
+    value.date?.getFullYear() ?? now.getFullYear(),
+  );
+  const [calMonth, setCalMonth] = useState(
+    value.date?.getMonth() ?? now.getMonth(),
+  );
+  const [hour, setHour] = useState(value.hour);
+  const [minute, setMinute] = useState(value.minute);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(value.date);
 
-  const calRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (calRef.current && !calRef.current.contains(e.target as Node))
-        setShowCal(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const daysInMonth = getDaysInMonth(calYear, calMonth);
+  const firstDay = getFirstDayOfMonth(calYear, calMonth);
+  const calCells: (number | null)[] = [
+    ...Array.from({ length: firstDay }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
 
   function prevMonth() {
     if (calMonth === 0) {
@@ -205,11 +81,7 @@ export default function MessageForm({ onSuccess }: Props) {
       setCalYear((y) => y + 1);
     } else setCalMonth((m) => m + 1);
   }
-  function selectDay(day: number) {
-    setSelectedDate(new Date(calYear, calMonth, day));
-    setShowCal(false);
-  }
-  function isDisabledDay(day: number) {
+  function isDisabled(day: number) {
     const d = new Date(calYear, calMonth, day);
     d.setHours(0, 0, 0, 0);
     const today = new Date();
@@ -228,14 +100,226 @@ export default function MessageForm({ onSuccess }: Props) {
       selectedDate.toDateString()
     );
   }
-  function formatDisplay() {
-    if (!selectedDate) return null;
-    return `${selectedDate.getDate()} ${MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear()}`;
+
+  function clampH(v: string) {
+    const n = parseInt(v);
+    if (isNaN(n)) return "00";
+    return String(Math.min(23, Math.max(0, n))).padStart(2, "0");
   }
+  function clampM(v: string) {
+    const n = parseInt(v);
+    if (isNaN(n)) return "00";
+    return String(Math.min(59, Math.max(0, n))).padStart(2, "0");
+  }
+
+  function handleConfirm() {
+    onChange({ date: selectedDate, hour, minute });
+    onClose();
+  }
+
+  return (
+    <div className="w-80 bg-[#0f1117] border border-[#252d3d] rounded-2xl shadow-2xl overflow-hidden">
+      {/* Calendar header */}
+      <div className="bg-[#161b27] px-5 py-4 border-b border-[#252d3d]">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={prevMonth}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#252d3d] text-slate-400 hover:text-white transition text-lg"
+          >
+            ‹
+          </button>
+          <span className="text-white font-semibold text-sm">
+            {MONTHS[calMonth]} {calYear}
+          </span>
+          <button
+            type="button"
+            onClick={nextMonth}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#252d3d] text-slate-400 hover:text-white transition text-lg"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+
+      {/* Calendar grid */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="grid grid-cols-7 mb-2">
+          {DAYS.map((d) => (
+            <div
+              key={d}
+              className="text-center text-xs text-slate-600 font-medium py-1"
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-y-1">
+          {calCells.map((day, i) => (
+            <div key={i} className="flex items-center justify-center">
+              {day === null ? null : (
+                <button
+                  type="button"
+                  disabled={isDisabled(day)}
+                  onClick={() =>
+                    setSelectedDate(new Date(calYear, calMonth, day))
+                  }
+                  className={`w-9 h-9 rounded-xl text-xs font-medium transition
+                    ${
+                      isSelected(day)
+                        ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+                        : isToday(day)
+                          ? "border border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
+                          : isDisabled(day)
+                            ? "text-slate-700 cursor-not-allowed"
+                            : "text-slate-300 hover:bg-[#252d3d] hover:text-white"
+                    }`}
+                >
+                  {day}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Time picker */}
+      <div className="px-4 py-3 border-t border-[#1e2433]">
+        <p className="text-xs text-slate-600 uppercase tracking-wide font-medium mb-2">
+          Waktu
+        </p>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-[#161b27] border border-[#252d3d] rounded-xl px-3 py-2 flex-1 focus-within:border-blue-500 transition">
+            <svg
+              className="w-3.5 h-3.5 text-slate-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <circle cx="12" cy="12" r="9" strokeWidth="1.5" />
+              <path d="M12 7v5l3 3" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <input
+              type="number"
+              min={0}
+              max={23}
+              value={hour}
+              onChange={(e) => setHour(e.target.value)}
+              onBlur={(e) => setHour(clampH(e.target.value))}
+              className="w-8 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span className="text-slate-500 font-bold">:</span>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={minute}
+              onChange={(e) => setMinute(e.target.value)}
+              onBlur={(e) => setMinute(clampM(e.target.value))}
+              className="w-8 bg-transparent text-white text-sm font-mono text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span className="text-xs text-slate-600 ml-1">24j</span>
+          </div>
+
+          {/* Quick time buttons */}
+          <div className="flex gap-1">
+            {["12:00", "00:00"].map((t) => {
+              const [h, m] = t.split(":");
+              const active = hour === h && minute === m;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    setHour(h);
+                    setMinute(m);
+                  }}
+                  className={`text-xs px-2 py-1.5 rounded-lg transition font-medium ${
+                    active
+                      ? "bg-blue-600 text-white"
+                      : "bg-[#161b27] text-slate-500 hover:text-white hover:bg-[#252d3d] border border-[#252d3d]"
+                  }`}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-[#1e2433] flex items-center justify-between">
+        <div className="text-xs text-slate-500">
+          {selectedDate ? (
+            <span className="text-slate-300">
+              {selectedDate.getDate()} {MONTHS_SHORT[selectedDate.getMonth()]}{" "}
+              {selectedDate.getFullYear()}, {hour}:{minute}
+            </span>
+          ) : (
+            <span>Pilih tanggal</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs text-slate-500 hover:text-white px-3 py-1.5 rounded-lg hover:bg-[#252d3d] transition"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={!selectedDate}
+            className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-4 py-1.5 rounded-lg transition"
+          >
+            Konfirmasi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MessageForm({ onSuccess }: Props) {
+  const [chatId, setChatId] = useState("");
+  const [message, setMessage] = useState("");
+  const [recurring, setRecurring] = useState<RecurringType>("once");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerValue, setPickerValue] = useState<{
+    date: Date | null;
+    hour: string;
+    minute: string;
+  }>({
+    date: null,
+    hour: "08",
+    minute: "00",
+  });
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node))
+        setShowPicker(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function formatPickerDisplay() {
+    if (!pickerValue.date) return null;
+    const d = pickerValue.date;
+    return `${d.getDate()} ${["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"][d.getMonth()]} ${d.getFullYear()}, ${pickerValue.hour}:${pickerValue.minute}`;
+  }
+
   function getScheduledAt(): string | null {
-    if (!selectedDate) return null;
-    const d = new Date(selectedDate);
-    d.setHours(parseInt(hour), parseInt(minute), 0, 0);
+    if (!pickerValue.date) return null;
+    const d = new Date(pickerValue.date);
+    d.setHours(parseInt(pickerValue.hour), parseInt(pickerValue.minute), 0, 0);
     return d.toISOString();
   }
 
@@ -268,9 +352,7 @@ export default function MessageForm({ onSuccess }: Props) {
       if (!res.ok) throw new Error(data.error ?? "Gagal menjadwalkan pesan.");
       setChatId("");
       setMessage("");
-      setSelectedDate(null);
-      setHour("08");
-      setMinute("00");
+      setPickerValue({ date: null, hour: "08", minute: "00" });
       setRecurring("once");
       onSuccess();
     } catch (err: unknown) {
@@ -280,13 +362,6 @@ export default function MessageForm({ onSuccess }: Props) {
     }
   }
 
-  const daysInMonth = getDaysInMonth(calYear, calMonth);
-  const firstDay = getFirstDayOfMonth(calYear, calMonth);
-  const calCells: (number | null)[] = [
-    ...Array.from({ length: firstDay }, () => null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-
   return (
     <div className="bg-[#0f1117] border border-[#1e2433] rounded-2xl p-6 shadow-lg">
       <h2 className="text-lg font-semibold text-white mb-5 flex items-center gap-2">
@@ -295,7 +370,6 @@ export default function MessageForm({ onSuccess }: Props) {
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Chat ID */}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
             Target Chat ID
@@ -312,7 +386,6 @@ export default function MessageForm({ onSuccess }: Props) {
           </p>
         </div>
 
-        {/* Message */}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
             Message
@@ -330,125 +403,72 @@ export default function MessageForm({ onSuccess }: Props) {
           </p>
         </div>
 
-        {/* Date + Time */}
+        {/* Single datetime button */}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
             Send At
           </label>
-          <div className="flex gap-2 items-start">
-            {/* Date picker */}
-            <div className="relative flex-1" ref={calRef}>
-              <button
-                type="button"
-                onClick={() => setShowCal((v) => !v)}
-                className={`w-full flex items-center gap-2 bg-[#161b27] border rounded-lg px-4 py-2.5 text-sm transition text-left ${showCal ? "border-blue-500 ring-1 ring-blue-500" : "border-[#252d3d] hover:border-slate-500"}`}
+          <div className="relative" ref={pickerRef}>
+            <button
+              type="button"
+              onClick={() => setShowPicker((v) => !v)}
+              className={`w-full flex items-center gap-3 bg-[#161b27] border rounded-xl px-4 py-3 text-sm transition text-left ${
+                showPicker
+                  ? "border-blue-500 ring-1 ring-blue-500"
+                  : "border-[#252d3d] hover:border-slate-500"
+              }`}
+            >
+              <svg
+                className="w-4 h-4 text-slate-500 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  className="w-4 h-4 text-slate-500 shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <rect
-                    x="3"
-                    y="4"
-                    width="18"
-                    height="18"
-                    rx="2"
-                    strokeWidth="1.5"
-                  />
-                  <path
-                    d="M16 2v4M8 2v4M3 10h18"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span
-                  className={selectedDate ? "text-white" : "text-slate-600"}
-                >
-                  {formatDisplay() ?? "Pilih tanggal"}
-                </span>
-              </button>
-
-              {showCal && (
-                <div className="absolute z-50 mt-2 w-72 bg-[#161b27] border border-[#252d3d] rounded-xl shadow-2xl p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <button
-                      type="button"
-                      onClick={prevMonth}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#252d3d] text-slate-400 hover:text-white transition"
-                    >
-                      ‹
-                    </button>
-                    <span className="text-sm font-semibold text-white">
-                      {MONTHS[calMonth]} {calYear}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={nextMonth}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#252d3d] text-slate-400 hover:text-white transition"
-                    >
-                      ›
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-7 mb-1">
-                    {DAYS.map((d) => (
-                      <div
-                        key={d}
-                        className="text-center text-xs text-slate-600 font-medium py-1"
-                      >
-                        {d}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-y-1">
-                    {calCells.map((day, i) => (
-                      <div key={i} className="flex items-center justify-center">
-                        {day === null ? null : (
-                          <button
-                            type="button"
-                            disabled={isDisabledDay(day)}
-                            onClick={() => selectDay(day)}
-                            className={`w-8 h-8 rounded-lg text-xs font-medium transition
-                              ${
-                                isSelected(day)
-                                  ? "bg-blue-600 text-white"
-                                  : isToday(day)
-                                    ? "border border-blue-500 text-blue-400 hover:bg-blue-500/20"
-                                    : isDisabledDay(day)
-                                      ? "text-slate-700 cursor-not-allowed"
-                                      : "text-slate-300 hover:bg-[#252d3d]"
-                              }`}
-                          >
-                            {day}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Drum time picker */}
-            <div className="bg-[#0f1117] border border-[#1e2433] rounded-xl px-3 py-1 flex items-center gap-1">
-              <DrumPicker items={HOURS} value={hour} onChange={setHour} />
-              <span className="text-slate-500 font-bold text-lg mb-0.5">:</span>
-              <DrumPicker items={MINUTES} value={minute} onChange={setMinute} />
-            </div>
-          </div>
-
-          {selectedDate && (
-            <p className="text-xs text-slate-500 mt-1.5">
-              Akan dikirim:{" "}
-              <span className="text-slate-300">
-                {formatDisplay()} pukul {hour}:{minute}
+                <rect
+                  x="3"
+                  y="4"
+                  width="18"
+                  height="18"
+                  rx="2"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M16 2v4M8 2v4M3 10h18"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span
+                className={pickerValue.date ? "text-white" : "text-slate-600"}
+              >
+                {formatPickerDisplay() ?? "Pilih tanggal & waktu"}
               </span>
-            </p>
-          )}
+              {pickerValue.date && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPickerValue({ date: null, hour: "08", minute: "00" });
+                  }}
+                  className="ml-auto text-slate-600 hover:text-slate-400 transition"
+                >
+                  ✕
+                </button>
+              )}
+            </button>
+
+            {showPicker && (
+              <div className="absolute z-50 mt-2 left-0">
+                <DateTimePicker
+                  value={pickerValue}
+                  onChange={setPickerValue}
+                  onClose={() => setShowPicker(false)}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Recurring */}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
             Repeat

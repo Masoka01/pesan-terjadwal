@@ -1,92 +1,85 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebase";
-import { sendTelegramMessage, computeNextRunAt } from "@/lib/telegram";
-import { ScheduledMessage } from "@/types";
+import { CreateMessagePayload, ScheduledMessage } from "@/types";
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 60;
-
-export async function GET(req: NextRequest) {
-  // Verify cron secret to prevent unauthorized calls
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const now = new Date();
-  const db = getFirebaseAdmin();
-
+export async function POST(req: NextRequest) {
   try {
-    // Fetch all pending messages where scheduledAt <= now
+    const body: CreateMessagePayload = await req.json();
+    const { chatId, message, scheduledAt, recurring } = body;
+
+    if (!chatId || !message || !scheduledAt || !recurring) {
+      return NextResponse.json(
+        {
+          error:
+            "Missing required fields: chatId, message, scheduledAt, recurring",
+        },
+        { status: 400 },
+      );
+    }
+
+    const scheduled = new Date(scheduledAt);
+    if (isNaN(scheduled.getTime())) {
+      return NextResponse.json(
+        { error: "Invalid scheduledAt date format." },
+        { status: 400 },
+      );
+    }
+
+    const db = getFirebaseAdmin();
+    const doc: Omit<ScheduledMessage, "id"> = {
+      chatId,
+      message,
+      scheduledAt: scheduled.toISOString(),
+      recurring,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    const ref = await db.collection("scheduled_messages").add(doc);
+    return NextResponse.json({ id: ref.id, ...doc }, { status: 201 });
+  } catch (err: unknown) {
+    console.error("[schedule POST] Error:", err);
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { id } = await req.json();
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+    const db = getFirebaseAdmin();
+    await db.collection("scheduled_messages").doc(id).delete();
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    console.error("[schedule DELETE] Error:", err);
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function GET() {
+  try {
+    const db = getFirebaseAdmin();
     const snapshot = await db
       .collection("scheduled_messages")
-      .where("status", "==", "pending")
-      .where("scheduledAt", "<=", now.toISOString())
+      .orderBy("createdAt", "desc")
+      .limit(100)
       .get();
 
-    if (snapshot.empty) {
-      return NextResponse.json({ processed: 0, message: "No messages due." });
-    }
+    const messages: ScheduledMessage[] = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...(doc.data() as Omit<ScheduledMessage, "id">),
+    }));
 
-    const results: Array<{ id: string; status: string; error?: string }> = [];
-
-    for (const doc of snapshot.docs) {
-      const data = doc.data() as Omit<ScheduledMessage, "id">;
-      const id = doc.id;
-
-      const { ok, error } = await sendTelegramMessage(data.chatId, data.message);
-
-      if (ok) {
-        if (data.recurring === "once") {
-          // Mark as sent
-          await doc.ref.update({
-            status: "sent",
-            sentAt: now.toISOString(),
-          });
-          results.push({ id, status: "sent" });
-        } else {
-          // Recurring: schedule next run and keep pending
-          const nextRunAt = computeNextRunAt(
-            data.nextRunAt ?? data.scheduledAt,
-            data.recurring as "daily" | "weekly"
-          );
-          await doc.ref.update({
-            status: "sent",
-            sentAt: now.toISOString(),
-          });
-
-          // Create next occurrence
-          await db.collection("scheduled_messages").add({
-            chatId: data.chatId,
-            message: data.message,
-            scheduledAt: nextRunAt,
-            recurring: data.recurring,
-            status: "pending",
-            createdAt: now.toISOString(),
-            nextRunAt,
-          });
-
-          results.push({ id, status: "sent-recurring", });
-        }
-      } else {
-        await doc.ref.update({
-          status: "failed",
-          errorMessage: error ?? "Unknown error",
-        });
-        results.push({ id, status: "failed", error });
-      }
-    }
-
-    return NextResponse.json({
-      processed: results.length,
-      results,
-      timestamp: now.toISOString(),
-    });
+    return NextResponse.json(messages);
   } catch (err: unknown) {
-    console.error("[cron] Error:", err);
-    const message = err instanceof Error ? err.message : "Internal error";
+    console.error("[schedule GET] Error:", err);
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
